@@ -686,6 +686,7 @@ nav{position:fixed;top:0;left:0;right:0;z-index:500;background:rgba(5,7,15,.96);
 }
 </style>
 </head>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <body>
 <div id="cur-dot"></div>
 <div id="cur-ring"></div>
@@ -699,7 +700,7 @@ nav{position:fixed;top:0;left:0;right:0;z-index:500;background:rgba(5,7,15,.96);
     </button>
     <div class="nav-spacer"></div>
     <div class="nav-right">
-      <a href="#" class="btn-login shim">
+      <a onclick="loginDiscord()" class="btn-login shim" style="cursor:pointer">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
         Iniciar Sesión
       </a>
@@ -1168,6 +1169,89 @@ nav{position:fixed;top:0;left:0;right:0;z-index:500;background:rgba(5,7,15,.96);
 </div>
 
 <script>
+/* ═══ SUPABASE ═══ */
+const SUPA_URL = 'https://omibhsxquiqkjehelnuz.supabase.co'
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9taWJoc3hxdWlxa2plaGVsbnV6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4ODI1OTgsImV4cCI6MjA4OTQ1ODU5OH0.SOqh5pnRdPJSCRuRpGV2EW_qB1niUL2eQeDrd6UGQOk'
+const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY)
+
+function nombreARangoKey(n){
+  const m={'Vertex Legend':'legend','Papaupa':'papaupa','Platano Power':'platano',
+    'Maestro':'maestro','Diamante':'diamante','Oro':'oro','Plata':'plata',
+    'Hierro':'hierro','Plástico':'plastico','Cartón':'carton'}
+  return m[n]||'carton'
+}
+
+async function verificarLogin(){
+  const {data:{user}}=await sb.auth.getUser()
+  if(!user)return
+  const discordId=user.user_metadata.provider_id
+  const nombre=user.user_metadata.full_name
+  const foto=user.user_metadata.avatar_url
+  const tag=user.user_metadata.custom_claims?.global_name||nombre
+  const {data:existe}=await sb.from('jugadores').select('id').eq('discord_id',discordId).single()
+  if(!existe){
+    const {data:nj}=await sb.from('jugadores').insert({
+      discord_id:discordId,discord_tag:tag,nombre,foto_url:foto,
+      puntos_globales:0,rango_global:'Cartón',victorias_total:0,
+      torneos_total:0,temporada_actual:1,es_mvp_global:false
+    }).select().single()
+    await sb.from('rangos_por_juego').insert(
+      ['Valorant','Warzone','Fortnite','Brawlhalla','Rocket League'].map(juego=>({
+        jugador_id:nj.id,discord_id:discordId,juego,
+        puntos:0,rango:'Cartón',victorias:0,torneos:0,es_mvp_juego:false
+      }))
+    )
+  } else {
+    await sb.from('jugadores').update({nombre,foto_url:foto,discord_tag:tag}).eq('discord_id',discordId)
+  }
+}
+
+async function loginDiscord(){
+  await sb.auth.signInWithOAuth({provider:'discord',options:{redirectTo:window.location.href}})
+}
+
+async function cargarDesdeSupabase(){
+  const [{data:jug},{data:rangos},{data:torn}]=await Promise.all([
+    sb.from('jugadores').select('*').order('puntos_globales',{ascending:false}),
+    sb.from('rangos_por_juego').select('*'),
+    sb.from('torneos').select('*').order('fecha',{ascending:true}),
+  ])
+  if(jug){
+    jugadores=jug.map((j,i)=>{
+      const misRangos=rangos?.filter(r=>r.discord_id===j.discord_id)||[]
+      const gameTiers={}
+      misRangos.forEach(r=>{gameTiers[r.juego]=nombreARangoKey(r.rango)})
+      return{
+        pos:i+1,nombre:j.nombre,foto_url:j.foto_url,team:j.team||'—',
+        juego:misRangos.sort((a,b)=>b.puntos-a.puntos)[0]?.juego||'Valorant',
+        tier:nombreARangoKey(j.rango_global),
+        wins:j.victorias_total,torneos:j.torneos_total,pts:j.puntos_globales,
+        gameTiers,es_mvp_global:j.es_mvp_global
+      }
+    })
+  }
+  if(rangos){
+    playerGameStatsByPlayer={}
+    rangos.forEach(r=>{
+      if(!playerGameStatsByPlayer[r.discord_id])playerGameStatsByPlayer[r.discord_id]=[]
+      playerGameStatsByPlayer[r.discord_id].push({
+        game:r.juego,pts:r.puntos,pos:r.posicion_ranking||1,
+        wins:r.victorias,torneos:r.torneos,
+        color:GAME_COLORS[r.juego]||'var(--gold)'
+      })
+    })
+  }
+  if(torn){
+    torneosList=torn.map(t=>({
+      ...t,
+      status:t.estado==='abierto'?'o':t.estado==='activo'?'a':'c',
+      color:GAME_COLORS[t.juego]||'var(--gold)',
+      cupos:`${t.cupos_actuales}/${t.cupos_max}`,
+      premio:`${t.premio_pts_1} pts`
+    }))
+  }
+  renderRanking();renderTorneos();renderProfiles();renderTemporadas()
+}
 /* ═══ CURSOR ═══ */
 const dot=document.getElementById('cur-dot'),ring=document.getElementById('cur-ring');
 let mx=0,my=0,rx=0,ry=0;
@@ -1875,6 +1959,8 @@ function initScrollIndicator(){
 renderRanking();renderRanksRef();renderTorneos();renderHistorial();renderTemporadas();
 renderProfiles();renderTeams();renderGameView('Valorant');renderNews();renderBracket('wz');
 initScrollIndicator();
+verificarLogin()
+cargarDesdeSupabase()
 goPage('home');
 </script>
 </body>
