@@ -1959,9 +1959,45 @@ function initScrollIndicator(){
 renderRanking();renderRanksRef();renderTorneos();renderHistorial();renderTemporadas();
 renderProfiles();renderTeams();renderGameView('Valorant');renderNews();renderBracket('wz');
 initScrollIndicator();
-verificarLogin()
+
+sb.auth.onAuthStateChange(async (event, session) => {
+  if (event === 'SIGNED_IN' && session) {
+    await verificarLogin()
+    await cargarDesdeSupabase()
+    const {data:{user}} = await sb.auth.getUser()
+    if (user) {
+      const nombre = user.user_metadata.full_name
+      const foto   = user.user_metadata.avatar_url
+      document.querySelectorAll('.btn-login').forEach(btn => {
+        btn.innerHTML = `
+          <img src="${foto}" style="width:22px;height:22px;border-radius:50%;object-fit:cover">
+          ${nombre}
+        `
+        btn.onclick = async () => {
+          await sb.auth.signOut()
+          location.reload()
+        }
+      })
+    }
+  }
+})
+verificarLogin().then(async () => {
+  const {data:{user}} = await sb.auth.getUser()
+  if (user) {
+    const nombre = user.user_metadata.full_name
+    const foto   = user.user_metadata.avatar_url
+    document.querySelectorAll('.btn-login').forEach(btn => {
+      btn.innerHTML = `
+        <img src="${foto}" style="width:22px;height:22px;border-radius:50%;object-fit:cover">
+        ${nombre}
+      `
+      btn.onclick = async () => {
+        await sb.auth.signOut()
+        location.reload()
+      }
+    })
+  }
+})
 cargarDesdeSupabase()
+
 goPage('home');
-</script>
-</body>
-</html>
